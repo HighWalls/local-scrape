@@ -21,7 +21,17 @@ Example request: “Use local-scrape to fetch https://example.com as Markdown.
 Use the app folder I supplied and stop the API when finished.”
 
 No Hermes profile config, credentials, memories or history belong in this ZIP.
-LocalScrape's optional key stays in the app's own `.env`, not in the skill.
+AI is disabled by default (`llm_provider: none`); ordinary scraping needs no model
+account, Ollama daemon or weights. LocalScrape does not inherit the Hermes chat
+model, credential pools or OAuth subscription. Configure an optional provider and
+exact model independently using [providers.md](providers.md). Recipient-owned
+keys stay in this app's `.env` or process environment, never the skill or JSON.
+Do not paste a secret into agent chat or copy the whole Hermes `.env`.
+
+The 0.2.0 skill asks for provider/model only when AI is needed and the choice is
+unknown. It uses task-scoped `run.cmd` by default, preserves partial-result/source
+verification, and coordinates shared-worker cleanup; continuous monitoring is
+explicit opt-in, not an idle service left running after ordinary scraping.
 
 Primary references: [Skills System](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills),
 [profiles](https://hermes-agent.nousresearch.com/docs/user-guide/profiles).

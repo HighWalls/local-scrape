@@ -5,7 +5,11 @@ from pathlib import Path
 import secrets
 import re
 
-DEFAULTS = dict(model="deepseek-v4.1-flash", num_ctx=8192, max_input_chars=18000,
+from .llm import normalize, LEGACY_KEYS
+
+DEFAULTS = dict(model="", llm_provider="none", llm_base_url=None,
+    llm_api_key_env="LLM_API_KEY", llm_timeout_seconds=180, llm_max_tokens=2048,
+    num_ctx=8192, max_input_chars=18000,
     max_response_bytes=5000000, timeout_seconds=45, ollama_timeout_seconds=180,
     allow_private_urls=False, respect_robots=True, max_pages=20, max_depth=3,
     api_host="127.0.0.1", api_port=8765, ollama_url="https://ollama.com",
@@ -23,13 +27,15 @@ BOUNDS = dict(num_ctx=(1024,32768), max_input_chars=(100,100000),
 def load_settings(root=None, overrides=None):
     root = Path(root or os.environ.get("LOCAL_SCRAPE_ROOT") or Path(__file__).resolve().parent.parent).resolve()
     values = dict(DEFAULTS)
+    supplied = {}
     config = root / "config.json"
     if config.exists():
         loaded = json.loads(config.read_text(encoding="utf-8"))
         if not isinstance(loaded, dict):
             raise ValueError("config.json must be an object")
-        values.update(loaded)
-    values.update(overrides or {})
+        supplied.update(loaded)
+    supplied.update(overrides or {})
+    values.update(supplied)
     unknown = set(values) - set(DEFAULTS) - {"data_dir", "artifact_dir"}
     if unknown:
         raise ValueError("Unknown settings: " + ", ".join(sorted(unknown)))
@@ -42,18 +48,12 @@ def load_settings(root=None, overrides=None):
             raise ValueError(f"{key} must be boolean")
     if values["api_host"] != "127.0.0.1":
         raise ValueError("API must bind 127.0.0.1")
-    mode = values["ollama_mode"]
-    if mode not in ("local", "cloud"):
-        raise ValueError("ollama_mode must be local or cloud")
-    expected_url = "https://ollama.com" if mode == "cloud" else "http://127.0.0.1:11434"
-    if values["ollama_url"] != expected_url:
-        raise ValueError("Only the exact allowed Ollama endpoint for this mode is supported")
-    key_name = values["ollama_api_key_env"]
-    if not isinstance(key_name, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]{0,99}", key_name):
-        raise ValueError("ollama_api_key_env must be an uppercase environment variable name")
-    model = values["model"]
-    if not isinstance(model, str) or not model or len(model) > 100 or any(c in model for c in "/\\@ ") or "cloud" in model.lower():
-        raise ValueError("A valid Ollama model name is required")
+    legacy = 'llm_provider' not in supplied and any(k in supplied for k in LEGACY_KEYS)
+    if legacy and 'model' not in supplied:
+        values['model'] = 'deepseek-v4.1-flash'
+    values['_legacy_ollama'] = legacy
+    normalized = normalize(values)
+    key_name = normalized['llm_api_key_env']
     values["root"] = str(root)
     for key, default in (("data_dir", "data"), ("artifact_dir", "data/artifacts")):
         path = Path(values.get(key, default))
@@ -70,11 +70,14 @@ def load_settings(root=None, overrides=None):
         if not credential.is_relative_to(root) or credential == root:
             raise ValueError('credential_env_file must be within project root')
         values['credential_env_file'] = str(credential)
-    values["ollama_api_key"] = None
-    if mode == "cloud":
+    values['llm_api_key'] = None
+    if normalized['llm_provider'] != 'none' and not (legacy and values['ollama_mode'] == 'local'):
         # An explicitly empty process variable also wins (disables file fallback).
-        values["ollama_api_key"] = ((os.environ[key_name] or None) if key_name in os.environ
+        values['llm_api_key'] = ((os.environ[key_name] or None) if key_name in os.environ
                                     else _read_named_key(values["credential_env_file"], key_name))
+    normalized['llm_api_key'] = values['llm_api_key']
+    values.update({key: value for key, value in normalized.items() if not key.startswith('_auth')})
+    values['ollama_api_key'] = values['llm_api_key'] if legacy and values['ollama_mode'] == 'cloud' else None
     return values
 
 

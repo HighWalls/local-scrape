@@ -78,7 +78,7 @@ async def test_robots_denial_prevents_document_fetch():
 
 @pytest.mark.asyncio
 async def test_supplied_html_extraction_bounds_input_without_sending_markup():
-    engine = Engine({'max_input_chars':10})
+    engine = Engine({'max_input_chars':10, 'llm_provider': 'openai_compatible', 'llm_base_url': 'http://localhost:1234/v1', 'model': 'fixture/model'})
     captured = []
     async def extract(prompt,text,schema):
         captured.append(text)
@@ -174,8 +174,9 @@ async def test_health_does_not_confuse_configured_key_with_valid_auth():
     engine.extractor.client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(401)))
     try:
         health = await engine.health()
-        assert health['ollama_available'] is False
-        assert health['available'] is False
-        assert health['status'] == 'degraded'
+        assert health['configured'] is True and health['auth_configured'] is True
+        assert health['inference_verified'] is False
+        assert health['available'] is True
+        assert 'invalid-key' not in str(health)
     finally:
         await engine.close()

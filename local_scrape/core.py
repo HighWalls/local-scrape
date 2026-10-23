@@ -30,7 +30,7 @@ class Engine:
         limit = limit or self.settings.get('max_response_bytes',5000000)
         try:
             async with self.client.stream('GET', target.pinned_url,
-                    headers={'Host':target.host_header, 'User-Agent':'LocalScrape/0.1', 'Accept-Encoding':'identity'},
+                    headers={'Host':target.host_header, 'User-Agent':'LocalScrape/0.2', 'Accept-Encoding':'identity'},
                     extensions={'sni_hostname':target.hostname},
                     timeout=self.settings.get('timeout_seconds',45)) as response:
                 if response.headers.get('content-length','').isdigit() and int(response.headers['content-length']) > limit:
@@ -212,6 +212,7 @@ class Engine:
 
     async def extract(self,prompt,*,schema=None,url=None,text=None,html=None,render='auto'):
         self._prompt(prompt)
+        self.extractor.ensure_configured()
         if sum(value is not None for value in (url,text,html)) != 1:
             raise ScrapeError('INVALID_ARGUMENT','Exactly one of url, text or html is required',422)
         warnings, truncated = [], False
@@ -231,7 +232,7 @@ class Engine:
             warnings.append('input_truncated')
         schema = await self.schema(prompt) if schema is None else check_schema(schema)
         data = await self.extractor.extract(prompt,content,schema)
-        return dict(data=data,schema=schema,source=source,model=self.settings.get('model','deepseek-v4.1-flash'),warnings=warnings,truncated=truncated)
+        return dict(data=data,schema=schema,source=source,model=self.extractor.config['model'],warnings=warnings,truncated=truncated)
 
     @staticmethod
     def _prompt(prompt):
@@ -256,16 +257,8 @@ class Engine:
                     await browser.close()
         except Exception:
             pass
-        available = False
-        headers = {}
-        key = self.settings.get('ollama_api_key')
-        if self.extractor.mode == 'cloud' and key:
-            headers['Authorization'] = 'Bearer '+key
-        if self.extractor.mode == 'local' or key:
-            try:
-                async with asyncio.timeout(8):
-                    async with self.extractor.client.stream('GET',self.extractor.url+'/api/tags',headers=headers,timeout=8) as response:
-                        available = response.status_code == 200
-            except (TimeoutError,httpx.HTTPError):
-                pass
-        return dict(status='ready' if available and browser_available else 'degraded',available=available,model=self.settings.get('model','deepseek-v4.1-flash'),ollama_mode=self.extractor.mode,ollama_available=available,browser_available=browser_available)
+        from .llm import public_status
+        # Configuration is not proof of valid auth, reachable inference, or model support.
+        # Never spend tokens or contact provider catalogs during a health check.
+        return dict(status='ready' if browser_available else 'degraded', available=True,
+                    browser_available=browser_available, **public_status(self.extractor.config))

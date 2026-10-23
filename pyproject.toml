@@ -8,8 +8,8 @@ exclude = ["tests*"]
 
 [project]
 name = "local-scrape"
-version = "0.1.0"
-description = "Self-hosted scraping REST API and CLI with Ollama AI"
+version = "0.2.0"
+description = "Self-hosted scraping REST API and CLI with optional provider-neutral AI extraction"
 readme = "README.md"
 authors = [{name = "HighWalls"}]
 license = {file = "LICENSE"}

@@ -13,8 +13,11 @@ subscription or a ScrapeGraphAI client.
 - Windows with installed **Python 3.13 or 3.14**, available to the launcher/PATH.
 - A writable extracted project folder and internet for dependencies, Playwright
   Chromium and target sites. Do not run inside the ZIP.
-- Your own optional Ollama Cloud account/key for AI only. Plain scrape, crawl,
-  search and non-AI monitor checks do not need a key.
+- No AI account, Ollama, local model daemon or model download is needed for plain
+  scrape, crawl, search or non-AI monitor checks. AI is optional and separately configured.
+
+This download is a **source ZIP**, not an EXE and not bundled Python. Setup creates
+an installation-local runtime; it is not a preinstalled portable interpreter.
 
 Open **Command Prompt** in the extracted folder:
 
@@ -38,28 +41,39 @@ normal cleanup cannot be promised after a hard kill.
 
 ## Optional AI: your credentials, your account
 
-The default is **Ollama Cloud**, model `deepseek-v4.1-flash`. No local Ollama
-server or downloaded model is required. Account access, quota, rate limits and
-charges are yours; this distribution includes no API key or paid credits.
+The default is **AI disabled**: `llm_provider` is `none`, `model` is empty, and
+no endpoint is selected. Ordinary scraping works without `config.json` or `.env`.
+Extraction/schema commands require an explicit provider and chat-capable model;
+without configuration they return a configuration-needed error, not a paid fallback.
 
-Use a local text editor to create a project-root `.env` containing the variable
-`OLLAMA_API_KEY` assigned to your own key. Alternatively set that variable in
-your secure environment-management UI before launching the app. A process
-value takes precedence. **Never paste keys into chat, command arguments,
-screenshots, issues or source control.** Do not copy a Hermes environment file.
-The app reads its own project credential file, not shared Hermes credentials.
-Restart an intentionally persistent API after changing credentials.
+Choose OpenAI, Anthropic, Gemini, an OpenAI-compatible cloud/local endpoint, or
+optional Ollama. See [provider setup and examples](docs/providers.md) and the
+[quick start AI steps](QUICKSTART.md#only-if-you-want-ai). This is protocol choice,
+not a promise that every model works: embeddings, image-only models, OAuth-only
+accounts and Responses-only routes are not generally supported.
 
-Defaults work without `config.json`. Copy `config.example.json` to `config.json`
-only to customize settings; never put secrets in JSON config. To read only the
-process environment, set `credential_env_file` to `null`.
+Copy `config.example.json` to `config.json` only when customizing settings, then
+edit `llm_provider`, the exact `model` ID and, when required, `llm_base_url`. Keep
+secrets out of JSON. Use a local editor to create this app's own `.env` with your
+own `LLM_API_KEY`, or set the configured variable in your process environment.
+`llm_api_key_env` can select another variable name. Process values win, including
+an explicitly empty value that disables file fallback. `credential_env_file: null`
+selects environment-only lookup. Local servers that do not require a key can run
+without one. Restart an intentionally persistent API after changing settings/keys.
+
+**Never paste keys into chat, command arguments, screenshots, issues or source
+control.** Do not copy Hermes credentials, OAuth sessions or another user's `.env`.
+No account, paid credits or inference subscription is included. Quota, access,
+rate limits and charges belong to the recipient's selected account. No automatic
+paid fallback, account switching, server autostart or model download is provided.
 
 Fetching, browser execution, state and artifacts run on your computer. Target
-sites and search providers still receive network requests. **AI extraction
-sends selected page/file content, prompts and schemas to Ollama Cloud.** Schema
-generation sends its prompt there too. Do not submit secrets or personal data
-without permission. Cloud JSON is prompted and schema-validated, not a guarantee
-of factual accuracy or native grammar-constrained output.
+sites and search providers receive network requests. **AI sends selected
+page/file content, prompts and schemas to the chosen endpoint.** Cloud endpoints
+mean remote inference; self-hosted scraping does not mean fully local inference.
+Do not transmit secrets or personal data without permission. Output is independently
+JSON/schema-validated with at most one repair, not proof of factual accuracy or
+guaranteed native grammar-constrained generation.
 
 ## One-shot examples
 
@@ -72,7 +86,8 @@ run.cmd search "Python documentation" --max-results 3
 run.cmd history --limit 10
 ```
 
-AI examples require your key and locally created input files:
+AI examples require your chosen provider/model, a key if that endpoint requires
+one, and locally created input files:
 
 ```bat
 run.cmd extract --url https://example.com --prompt "Extract the page title" --schema-file schema.json

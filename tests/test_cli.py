@@ -43,7 +43,7 @@ def test_lifecycle_cloud_skips_ollama_and_refuses_unowned_stop(tmp_path,monkeypa
     settings=load_settings(root=tmp_path,overrides={'credential_env_file':None})
     monkeypatch.setattr(lifecycle,'_runtime_info',lambda s:None)
     status=lifecycle.status(settings)
-    assert status['ollama']['mode']=='cloud' and status['ollama']['managed'] is False
+    assert status['llm']['llm_provider'] == 'none' and status['llm']['inference_verified'] is False
     state={'api':{'pid':123,'creation':'old','executable':'python.exe'},'ollama':{'pid':321,'creation':'old','executable':'ollama.exe'}}
     lifecycle._save_state(settings,state)
     monkeypatch.setattr(lifecycle,'_identity',lambda pid:{'pid':pid,'creation':'new','executable':'other.exe'})
@@ -57,7 +57,7 @@ def test_lifecycle_cloud_skips_ollama_and_refuses_unowned_stop(tmp_path,monkeypa
 def test_windows_venv_child_owned_pid_handshake(tmp_path):
     settings=load_settings(root=tmp_path,overrides={'credential_env_file':None})
     # Use the real project venv redirector, not mocks or the base interpreter.
-    python=Path(__file__).resolve().parents[1]/'.venv/Scripts/python.exe'
+    python=Path(sys.executable)
     env=dict(os.environ)
     env['PYTHONPATH']=str(Path(__file__).resolve().parents[1])
     env['LOCAL_SCRAPE_INSTANCE_ID']='regression-instance'
@@ -96,8 +96,8 @@ def test_named_cloud_credential_only(tmp_path,monkeypatch):
     envfile=tmp_path/'credentials.env'
     envfile.write_text('OTHER_KEY=do-not-load\nexport OLLAMA_API_KEY="test-only-key" # comment\n',encoding='utf-8')
     monkeypatch.delenv('OLLAMA_API_KEY',raising=False)
-    settings=load_settings(root=tmp_path,overrides={'credential_env_file':str(envfile)})
+    settings=load_settings(root=tmp_path,overrides={'credential_env_file':str(envfile), 'ollama_mode': 'cloud'})
     assert settings['ollama_api_key']=='test-only-key'
     assert 'OTHER_KEY' not in settings
     monkeypatch.setenv('OLLAMA_API_KEY','environment-precedence')
-    assert load_settings(root=tmp_path,overrides={'credential_env_file':str(envfile)})['ollama_api_key']=='environment-precedence'
+    assert load_settings(root=tmp_path,overrides={'credential_env_file':str(envfile), 'ollama_mode': 'cloud'})['ollama_api_key']=='environment-precedence'

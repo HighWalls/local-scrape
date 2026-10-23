@@ -7,13 +7,16 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 from pathlib import Path
+from urllib.parse import urlsplit
 import re
+import runpy
 import shlex
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = ["README.md", "QUICKSTART.md", "CHANGELOG.md", "docs/hermes.md",
+DOCS = ["README.md", "QUICKSTART.md", "CHANGELOG.md", "docs/hermes.md", "docs/providers.md",
         "skills/local-scrape/SKILL.md",
         "skills/local-scrape/references/operations.md"]
 
@@ -61,7 +64,8 @@ class DistributionDocsTests(unittest.TestCase):
         self.assertTrue(text.startswith("---\n"))
         front, body = text[4:].split("\n---\n", 1)
         self.assertIn("name: local-scrape", front)
-        self.assertRegex(front, r"(?m)^version: \d+\.\d+\.\d+$")
+        self.assertRegex(front, r"(?m)^version: 0\.2\.0$")
+        self.assertNotIn("ollama", front.lower())
         self.assertIn("author: HighWalls, Hermes Agent", front)
         self.assertIn("license: MIT", front)
         self.assertIn("platforms: [windows]", front)
@@ -81,13 +85,107 @@ class DistributionDocsTests(unittest.TestCase):
         for relative in ("README.md", "QUICKSTART.md"):
             self.assertTrue((ROOT / relative).is_file(), relative)
             text = read(relative)
-            for term in ("setup.cmd", "run.cmd scrape https://example.com", "OLLAMA_API_KEY", "Ollama Cloud"):
+            for term in ("setup.cmd", "run.cmd scrape https://example.com", "llm_provider", "LLM_API_KEY", "providers.md"):
                 self.assertIn(term, text)
         readme = read("README.md")
-        for term in ("deepseek-v4.1-flash", "3.13", "3.14", "partial", "nonzero", "start.cmd", "stop.cmd", "CAPTCHA", "LICENSE"):
+        for term in ("3.13", "3.14", "partial", "nonzero", "start.cmd", "stop.cmd", "CAPTCHA", "LICENSE", "source ZIP", "not an EXE"):
             self.assertIn(term, readme)
         for term in ("HERMES_HOME", "hermes skills list", "skill_view", "LOCAL_SCRAPE_ROOT"):
             self.assertIn(term, read("docs/hermes.md"))
+
+    def test_neutral_config_matches_backend_settings_contract(self):
+        config = json.loads(read("config.example.json"))
+        tree = ast.parse(read("local_scrape/settings.py"))
+        call = next(node.value for node in tree.body if isinstance(node, ast.Assign)
+                    and any(isinstance(target, ast.Name) and target.id == "DEFAULTS"
+                            for target in node.targets))
+        self.assertIsInstance(call, ast.Call)
+        defaults = {item.arg: ast.literal_eval(item.value) for item in call.keywords}
+        self.assertFalse(set(config) - set(defaults), "Example uses unknown settings")
+        for key, value in config.items():
+            with self.subTest(setting=key):
+                self.assertEqual(value, defaults[key], "Downloaded example must match defaults")
+        for key, value in {"llm_provider": "none", "model": "", "llm_base_url": None,
+                           "llm_api_key_env": "LLM_API_KEY", "llm_timeout_seconds": 180,
+                           "llm_max_tokens": 2048, "credential_env_file": ".env"}.items():
+            self.assertEqual(config.get(key), value, key)
+        self.assertFalse(any(key.startswith("ollama_") for key in config))
+        self.assertFalse(any(key in config for key in ("api_key", "llm_api_key", "password")))
+        env = read(".env.example")
+        self.assertIn("# LLM_API_KEY=", env)
+        self.assertNotIn("OLLAMA_API_KEY", env)
+        self.assertFalse(any(line.strip() and not line.lstrip().startswith("#")
+                             for line in env.splitlines()), "No active example credentials")
+
+    def test_provider_examples_are_valid_json_and_base_urls(self):
+        allowed = {"none", "openai", "openai_compatible", "anthropic", "gemini", "ollama"}
+        config_keys = set(json.loads(read("config.example.json")))
+        # llm.py is stdlib-only normalization: no settings loader, key reads,
+        # filesystem writes, requests, provider SDKs or service startup.
+        protocol = runpy.run_path(str(ROOT / "local_scrape/llm.py"))
+        neutral = protocol["normalize"](json.loads(read("config.example.json")))
+        self.assertEqual(neutral["llm_provider"], "none")
+        self.assertEqual(neutral["model"], "")
+        self.assertIsNone(neutral["llm_base_url"])
+        self.assertIsNone(neutral["llm_api_key"])
+        for base in protocol["BASE_URLS"].values():
+            self.assertIn(f"`{base}`", read("docs/providers.md"))
+        seen = set()
+        slash_model = False
+        for relative in DOCS:
+            for block in re.findall(r"```json\s*\n(.*?)\n```", read(relative), re.S):
+                example = json.loads(block)
+                if not isinstance(example, dict) or "llm_provider" not in example:
+                    continue
+                with self.subTest(file=relative, example=example):
+                    self.assertFalse(set(example) - config_keys)
+                    provider = example["llm_provider"]
+                    self.assertIn(provider, allowed)
+                    normalized = protocol["normalize"](example)
+                    self.assertEqual(normalized["llm_provider"], provider)
+                    self.assertEqual(normalized["model"], example["model"])
+                    if example.get("llm_base_url"):
+                        self.assertEqual(normalized["llm_base_url"], example["llm_base_url"])
+                    seen.add(provider)
+                    if provider == "none":
+                        continue
+                    self.assertTrue(example.get("model"), "AI requires explicit model ID")
+                    slash_model |= "/" in example["model"]
+                    base = example.get("llm_base_url")
+                    if provider == "openai_compatible":
+                        self.assertTrue(base, "Compatible servers require a base URL")
+                    if base:
+                        url = urlsplit(base)
+                        self.assertTrue(url.scheme == "https" or
+                                        (url.scheme == "http" and url.hostname in
+                                         {"127.0.0.1", "localhost", "::1"}))
+                        self.assertTrue(url.hostname)
+                        self.assertFalse(url.username or url.password or url.query or url.fragment)
+                        self.assertFalse(base.endswith(("/chat/completions", "/messages", "/api/chat")))
+                    self.assertEqual(example.get("llm_api_key_env", "LLM_API_KEY"), "LLM_API_KEY")
+        self.assertTrue(allowed - {"none"} <= seen, "Each supported protocol needs an example")
+        self.assertTrue(slash_model, "Retain a provider/model ID example")
+
+    def test_provider_guide_and_skill_do_not_imply_automatic_ai(self):
+        guide = read("docs/providers.md")
+        for term in ("explicitly empty", "process environment", "credential_env_file",
+                     "llm_timeout_seconds", "llm_max_tokens", "Responses-only", "OAuth",
+                     "one repair", "schema", "HTTPS", "loopback", "No automatic",
+                     "openrouter.ai/api/v1", "127.0.0.1:1234/v1"):
+            self.assertIn(term, guide)
+        for relative in ("README.md", "QUICKSTART.md", "docs/providers.md",
+                         "skills/local-scrape/SKILL.md", "skills/local-scrape/references/operations.md"):
+            text = read(relative)
+            self.assertNotIn("deepseek-v4.1-flash", text)
+            self.assertNotIn("configure.cmd", text)
+            self.assertNotIn("OLLAMA_API_KEY", text)
+        skill = read("skills/local-scrape/SKILL.md")
+        for term in ("llm_provider", "none", "recipient", "Hermes chat model",
+                     "ordinary scrape", "shared", "cancellation", "one repair", "OAuth"):
+            self.assertIn(term, skill)
+        for term in ("copy config.example.json config.json", "run.cmd extract --url",
+                     "schema.json", "llm_provider", "LLM_API_KEY"):
+            self.assertIn(term, read("QUICKSTART.md"))
 
     def test_documented_cli_examples_parse_without_runtime_or_network(self):
         # Execute only the actual CLI parser definitions, never settings/lifecycle.

@@ -15,6 +15,7 @@ import threading
 import time
 import uuid
 from .settings import token_for
+from .llm import normalize, public_status
 from .workflows import WorkflowError
 
 
@@ -145,6 +146,11 @@ def _port_open(port):
         return sock.connect_ex(('127.0.0.1',port))==0
 
 
+def _managed_ollama(settings):
+    # Only explicit v0.1 local configs retain optional legacy server management.
+    return bool(settings.get('_legacy_ollama') and settings.get('ollama_mode') == 'local')
+
+
 def _local_ollama_ready():
     import httpx
     try:
@@ -162,8 +168,11 @@ def process_environment(settings):
     for name,relative in {'TEMP':'data/tmp','TMP':'data/tmp','HOME':'data/home','USERPROFILE':'data/home','APPDATA':'data/appdata','LOCALAPPDATA':'data/localappdata','XDG_CACHE_HOME':'.cache','XDG_CONFIG_HOME':'data/config','PYTHONPYCACHEPREFIX':'.cache/pycache','PLAYWRIGHT_BROWSERS_PATH':'browsers','OLLAMA_MODELS':'models','UV_CACHE_DIR':'.cache/uv','PIP_CACHE_DIR':'.cache/pip'}.items():
         path=root/relative; path.mkdir(parents=True,exist_ok=True); env[name]=str(path)
     env.update(LOCAL_SCRAPE_ROOT=str(root),PYTHONUNBUFFERED='1',PYTHONNOUSERSITE='1',PYTHONDONTWRITEBYTECODE='1',OLLAMA_HOST='127.0.0.1:11434',OLLAMA_NUM_PARALLEL='1',OLLAMA_MAX_LOADED_MODELS='1',OLLAMA_NO_CLOUD='1')
-    if settings['ollama_mode']=='cloud' and settings.get('ollama_api_key'):
-        env[settings['ollama_api_key_env']]=settings['ollama_api_key']
+    config = normalize(settings)
+    if config['llm_provider'] != 'none':
+        # Forward an explicit empty value too: otherwise child file fallback revives a disabled key.
+        if not (config['_legacy_ollama'] and settings.get('ollama_mode') == 'local'):
+            env[config['llm_api_key_env']] = config['llm_api_key'] or ''
     return env
 
 
@@ -230,11 +239,8 @@ def status(settings):
     api=state.get('api')
     owned=_owned(api) if api else False
     healthy=bool(owned and info and api and info.get('instance_id')==api.get('instance_id') and info.get('pid')==api.get('pid'))
-    cloud=settings['ollama_mode']=='cloud'
-    ollama={'mode':settings['ollama_mode'],'managed':False}
-    if not cloud:
-        record=state.get('ollama'); ollama.update(running=_local_ollama_ready(),managed=_owned(record) if record else False)
-    return {'api':{'running':bool(info),'healthy':healthy,'owned':owned,'pid':api['pid'] if owned else None,'url':f"http://127.0.0.1:{settings['api_port']}"},'ollama':ollama}
+    return {'api':{'running':bool(info),'healthy':healthy,'owned':owned,'pid':api['pid'] if owned else None,'url':f"http://127.0.0.1:{settings['api_port']}"},
+            'llm': public_status(normalize(settings))}
 
 
 def start(settings):
@@ -255,7 +261,7 @@ def _start_unlocked(settings):
     env=process_environment(settings)
     launched=[]
     try:
-        if settings['ollama_mode']=='local' and not _local_ollama_ready():
+        if _managed_ollama(settings) and not _local_ollama_ready():
             if _port_open(11434):
                 raise WorkflowError('OLLAMA_PORT_IN_USE','Ollama port belongs to an unverified listener',409)
             executable=root/'runtime/ollama/ollama.exe'
@@ -296,7 +302,7 @@ def stop(settings):
 
 def _stop_unlocked(settings):
     state=_load_state(settings); stopped=[]; skipped=[]
-    names=['api']+(['ollama'] if settings['ollama_mode']=='local' else [])
+    names=['api']+(['ollama'] if _managed_ollama(settings) else [])
     for name in names:
         record=state.get(name)
         if not record:
@@ -358,7 +364,7 @@ def task_service(settings):
             raise WorkflowError('TASK_SERVICE_BUSY', 'A service is already running; task mode will not reuse or stop it', 409)
         if _port_open(settings['api_port']):
             raise WorkflowError('API_PORT_IN_USE', 'API port is in use; nothing was stopped', 409)
-        if settings['ollama_mode'] == 'local' and _port_open(11434):
+        if _managed_ollama(settings) and _port_open(11434):
             raise WorkflowError('OLLAMA_PORT_IN_USE', 'Task mode will not reuse an existing local model service', 409)
         started = False
         try:

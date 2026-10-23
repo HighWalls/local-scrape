@@ -39,7 +39,7 @@ def fixture_project(root):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('fixture source\n', encoding='utf-8')
     (root / 'pyproject.toml').write_text('[project]\nversion = "0.1.0"\n', encoding='utf-8')
-    (root / '.env.example').write_text('OLLAMA_API_KEY=\n', encoding='utf-8')
+    (root / '.env.example').write_text('LLM_API_KEY=\n', encoding='utf-8')
     for relative in ('.env', 'config.json', 'data/api-token', '.cache/hidden.py', 'logs/api.log'):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)

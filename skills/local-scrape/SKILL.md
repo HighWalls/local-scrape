@@ -1,20 +1,21 @@
 ---
 name: local-scrape
 description: Use when scraping sites into structured data.
-version: 0.1.0
+version: 0.2.0
 author: HighWalls, Hermes Agent
 license: MIT
 platforms: [windows]
 metadata:
   hermes:
-    tags: [scraping, extraction, crawling, monitoring, ollama]
+    tags: [scraping, extraction, crawling, monitoring, provider-neutral]
     requires_toolsets: [terminal]
 ---
 
 # LocalScrape
 
 Use this Windows app for public-page fetching and bounded extraction workflows.
-Browser work and stored results are local; optional AI uses Ollama Cloud.
+Browser work and stored results are local; optional AI uses the recipient-selected
+provider/model. Default `llm_provider: none` means no AI account, daemon or weights.
 Use the app directly, not a hosted scraping service or paid fallback provider.
 
 ## When to Use
@@ -37,10 +38,12 @@ Use the app directly, not a hosted scraping service or paid fallback provider.
 5. Use the verified root as `terminal`'s `workdir`. If `.venv/Scripts/python.exe`
    is missing, read `references/operations.md` before invoking setup.
 
-Python 3.13/3.14 and download access are prerequisites for setup. AI alone needs
-recipient-owned `OLLAMA_API_KEY` in the process environment or app-root `.env`.
-Never inspect/print keys or import a Hermes profile's credentials. Do not ask for
-keys in chat or put them in shell arguments. No local Ollama daemon is needed.
+Python 3.13/3.14 and download access are prerequisites for setup. Perform an
+ordinary scrape immediately when ready; do not ask for AI configuration first.
+AI needs a chosen chat-capable provider/model and a key only if that endpoint
+requires one. Never infer the scraper model from the Hermes chat model. Never
+inspect/print keys, ask for secrets in chat, or copy Hermes credentials/OAuth.
+The recipient supplies their own app-root `.env` or process environment locally.
 
 ## How to Run
 
@@ -51,7 +54,9 @@ terminal(command="cmd.exe /d /c run.cmd scrape https://example.com --render fast
 ```
 
 `run.cmd` starts the API and stops it in a `finally` path after the operation,
-including errors. Do not manually start an idle API or overlap commands.
+including errors and cancellation. Do not manually start an idle API or overlap
+commands. For shared workers, the parent coordinates service lifetime/cleanup;
+workers must not stop a service still used by siblings.
 Do not bypass this wrapper with direct CLI calls for ordinary work.
 For dynamic arguments, account for both the terminal shell and cmd.exe parsing.
 Never concatenate raw URLs, queries or prompts into a command. Reject shell
@@ -80,9 +85,11 @@ run.cmd history --limit 10
 1. Confirm the target, requested fields and authorization. Prefer one URL; cap
    agent-initiated crawls at five pages/depth one and search at five results
    unless more were requested. Report missing setup instead of inventing results.
-2. For AI, explain that selected content/prompts/schemas go to Ollama Cloud and
-   consume the recipient's account quota/billing. Default model is
-   `deepseek-v4.1-flash`; do not change models/accounts without authorization.
+2. Only when AI is required and its provider/model is unknown, ask for that
+   non-secret choice. Read `references/operations.md` and the app's
+   `docs/providers.md`. Configure explicit provider, exact model ID and base URL;
+   explain that selected input goes to that endpoint and cloud use can be billed.
+   No paid fallback, account switching, server autostart or weights download.
 3. Write a small JSON Schema with `write_file` if extraction needs one. Avoid
    an extra schema-generation AI call when the schema is obvious. Use null only
    when appropriate; never send unrelated local files or secrets.
@@ -101,6 +108,9 @@ run.cmd history --limit 10
 
 ## Pitfalls
 
+- AI supports the documented chat protocols, not every model, embeddings or
+  Responses-only/OAuth-only routes. Independent JSON/schema validation allows
+  at most one repair; schema validity is not factual accuracy or native grammar.
 - Protected/logged-in pages, CAPTCHAs and anti-bot controls can block fetching.
   No universal bypass, residential proxies or proprietary SaaS parity is promised.
 - Public search can time out, be blocked or merge unrelated businesses into one

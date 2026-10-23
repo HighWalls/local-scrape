@@ -13,7 +13,7 @@ class Parser(argparse.ArgumentParser):
 
 
 def parser():
-    p=Parser(prog='local-scrape',description='Self-hosted scraping with optional Ollama Cloud AI. Outputs JSON by default.')
+    p=Parser(prog='local-scrape',description='Self-hosted scraping with optional provider-neutral AI. Outputs JSON by default.')
     def common(q):
         q.add_argument('--root',default=argparse.SUPPRESS,help='Installation root (default: package installation)')
         q.add_argument('--json',action='store_true',default=argparse.SUPPRESS,help='Machine JSON (also the default)')
@@ -26,7 +26,7 @@ def parser():
         q.add_argument('--limit',type=int,default=50)
         q.add_argument('--offset',type=int,default=0)
     command('health','Authenticated engine readiness diagnostics')
-    command('start','Start project API; local Ollama only in explicit local mode')
+    command('start','Start project API; configured AI servers are user-managed')
     command('status','Inspect API and exactly-owned process state')
     command('stop','Stop only exactly-owned project processes')
     q=command('scrape','Fetch a public URL'); q.add_argument('url'); render(q)
@@ -56,7 +56,7 @@ def parser():
 
 def api_request(settings,method,path,payload=None):
     import httpx
-    maximum=settings['crawl_deadline_seconds'] if '/crawl' in path else (settings['ollama_timeout_seconds']*3+settings['timeout_seconds']+15)
+    maximum=settings['crawl_deadline_seconds'] if '/crawl' in path else (settings['llm_timeout_seconds']*3+settings['timeout_seconds']+15)
     try:
         with httpx.Client(trust_env=False,timeout=maximum) as client:
             r=client.request(method,f"http://127.0.0.1:{settings['api_port']}"+path,headers={'Authorization':'Bearer '+token_for(settings)},json=payload if payload is not None else None)

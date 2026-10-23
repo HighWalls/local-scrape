@@ -95,7 +95,7 @@ def create_app(settings=None, *, engine_factory=None, search_provider=None, run_
                     await task
             await engine.close()
 
-    app = FastAPI(title='LocalScrape',version='0.1.0',lifespan=lifespan,
+    app = FastAPI(title='LocalScrape',version='0.2.0',lifespan=lifespan,
                   dependencies=[Depends(HTTPBearer(auto_error=False))])
 
     @app.middleware('http')
@@ -152,7 +152,7 @@ def create_app(settings=None, *, engine_factory=None, search_provider=None, run_
     async def detailed_health():
         async def call():
             result = await app.state.engine.health()
-            return {k:v for k,v in result.items() if k in {'status','available','model','ollama_mode','ollama_available','browser_available'}}
+            return {k:v for k,v in result.items() if k in {'status','available','model','llm_provider','configured','auth_configured','inference_verified','browser_available'}}
         return await operation('health',{},call)
 
     @app.get('/v1/runtime')
