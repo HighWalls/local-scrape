@@ -1,0 +1,2 @@
+# Preserve the reviewed source bytes in Git checkouts and release ZIPs.
+* -text
